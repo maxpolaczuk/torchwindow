@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>TorchWindow WebRTC Stream</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, sans-serif;
+        background: #111;
+        color: #f0f0f0;
+      }
+      body {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 2rem;
+        gap: 1.5rem;
+      }
+      header {
+        text-align: center;
+      }
+      video {
+        width: min(90vw, 960px);
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        background: #222;
+      }
+      button {
+        background: #5a3df0;
+        border: none;
+        border-radius: 999px;
+        padding: 0.75rem 2.25rem;
+        color: white;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 120ms ease, box-shadow 120ms ease;
+      }
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 16px rgba(90, 61, 240, 0.35);
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+      }
+      .status {
+        font-size: 0.95rem;
+        color: #9ca3af;
+        min-height: 1.25rem;
+      }
+      footer {
+        font-size: 0.85rem;
+        color: #6b7280;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>TorchWindow Live Preview</h1>
+      <p>Click connect to view the current GPU tensor stream in your browser.</p>
+    </header>
+    <video id="video" autoplay playsinline></video>
+    <button id="connect">Connect</button>
+    <div class="status" id="status"></div>
+    <footer>Powered by TorchWindow WebRTC streaming.</footer>
+
+    <script>
+      const connectButton = document.getElementById("connect");
+      const statusEl = document.getElementById("status");
+      const videoEl = document.getElementById("video");
+      let pc;
+
+      function setStatus(text) {
+        statusEl.textContent = text;
+      }
+
+      async function connect() {
+        connectButton.disabled = true;
+        setStatus("Initializing peer connection...");
+        try {
+          pc = new RTCPeerConnection();
+          pc.addEventListener("connectionstatechange", () => {
+            setStatus(`Connection state: ${pc.connectionState}`);
+          });
+          pc.addEventListener("track", (event) => {
+            if (event.streams && event.streams[0]) {
+              videoEl.srcObject = event.streams[0];
+            }
+          });
+
+          const offer = await pc.createOffer({ offerToReceiveVideo: true });
+          await pc.setLocalDescription(offer);
+
+          const response = await fetch("/offer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sdp: offer.sdp, type: offer.type }),
+          });
+
+          if (!response.ok) {
+            throw new Error(await response.text());
+          }
+
+          const answer = await response.json();
+          await pc.setRemoteDescription(answer);
+          setStatus("Streaming...");
+        } catch (error) {
+          console.error(error);
+          setStatus(`Failed to connect: ${error}`);
+          connectButton.disabled = false;
+        }
+      }
+
+      connectButton.addEventListener("click", connect);
+    </script>
+  </body>
+</html>
