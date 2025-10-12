@@ -22,10 +22,12 @@ window.draw(image)
 - 3 dimensions, specifically `(rows, columns, channels)` in that order.
 - `channels` dimension must be of size 4 (r, g, b, a)
 
-## Example
-To check if torchwindow is properly installed try running
+## Streaming Diagnostics
+
+TorchWindow 2.0 includes a diagnostic command to check for CUDA, NVENC, and driver readiness.
+
 ```
-python3 -m torchwindow.example
+torchwindow diagnose
 ```
-You should see this window appear for 5 seconds before closing
-![Example](example.png)
+
+Use the output to confirm that `PyNvVideoCodec` is installed and that your environment exposes NVIDIA NVENC hardware.

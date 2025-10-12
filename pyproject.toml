@@ -1,24 +1,39 @@
 [tool.poetry]
 name = "torchwindow"
-version = "1.1.0"
-description = "Display tensors directly from GPU"
+version = "2.0.0"
+description = "Lossless WebRTC streaming for Torch tensors with server-side viewports"
 authors = ["Jeremy <jbaron34@gmail.com>"]
 readme = "README.md"
 license = "MIT"
 homepage = "https://github.com/jbaron34/torchwindow"
 repository = "https://github.com/jbaron34/torchwindow"
+packages = [{ include = "torchwindow" }]
+include = ["torchwindow/static/*", "examples/*"]
 
 [tool.poetry.dependencies]
-python = "^3.8"
-pysdl2 = "^0.9.14"
-pysdl2-dll = "^2.24.1"
-numpy = "^1.23.4"
-pyopengl = "^3.1.6"
-cuda-python = "^11.8.0"
+python = ">=3.10,<3.13"
+aiohttp = "^3.9.5"
+aiortc = "^1.7.0"
+av = "^12.1.0"
+numpy = "^1.26.0"
+torch = "^2.3.0"
 
+[tool.poetry.extras]
+nvenc = ["PyNvVideoCodec"]
+cupy = ["cupy-cuda12x"]
 
 [tool.poetry.group.dev.dependencies]
 black = {version = "^22.10.0", allow-prereleases = true}
+pytest = "^7.4.4"
+pytest-asyncio = "^0.23.8"
+pytest-mock = "^3.12.0"
+pytest-cov = "^4.1.0"
+
+[tool.poetry.scripts]
+torchwindow = "torchwindow.cli:main"
+torchwindow-serve = "torchwindow.cli:serve_command"
+torchwindow-sfu = "torchwindow.cli:sfu_command"
+torchwindow-diagnose = "torchwindow.cli:diagnose_command"
 
 [build-system]
 requires = ["poetry-core"]

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>TorchWindow 2.0</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1 id="window-name">TorchWindow 2.0</h1>
+        <p class="status" id="connection-status">Connecting…</p>
+      </header>
+
+      <section class="video-section">
+        <video id="viewport" autoplay playsinline muted></video>
+        <aside class="controls">
+          <div class="control-group">
+            <button data-action="pause">Pause</button>
+            <button data-action="resume">Resume</button>
+          </div>
+          <div class="control-group">
+            <button data-action="zoom-in">Zoom +</button>
+            <button data-action="zoom-out">Zoom -</button>
+          </div>
+          <div class="control-group">
+            <button data-action="pan-up">↑</button>
+            <button data-action="pan-left">←</button>
+            <button data-action="pan-right">→</button>
+            <button data-action="pan-down">↓</button>
+          </div>
+          <div class="control-group">
+            <label>
+              Resolution
+              <select id="resolution-select">
+                <option value="1280x720@60">1280×720 @60</option>
+                <option value="1920x1080@60">1920×1080 @60</option>
+                <option value="1920x1080@30">1920×1080 @30</option>
+              </select>
+            </label>
+          </div>
+        </aside>
+      </section>
+
+      <section class="stats">
+        <h2>Stats</h2>
+        <dl>
+          <dt>Server FPS</dt>
+          <dd id="stat-server-fps">0</dd>
+          <dt>Encode ms (avg)</dt>
+          <dd id="stat-encode">0</dd>
+          <dt>Encoder</dt>
+          <dd id="stat-encoder">unknown</dd>
+          <dt>Queue depth</dt>
+          <dd id="stat-queue">0</dd>
+          <dt>Dropped frames</dt>
+          <dd id="stat-dropped">0</dd>
+        </dl>
+        <h3>Subscribers</h3>
+        <pre id="stat-subscribers">[]</pre>
+      </section>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
