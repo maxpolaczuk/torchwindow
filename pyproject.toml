@@ -19,9 +19,11 @@ cuda-python = ">=11.8.0,<13.0.0"
 pyobjc-framework-Metal = { version = ">=9.0", optional = true, markers = "sys_platform == 'darwin'" }
 pyobjc-framework-Cocoa = { version = ">=9.0", optional = true, markers = "sys_platform == 'darwin'" }
 pyobjc-framework-Quartz = { version = ">=9.0", optional = true, markers = "sys_platform == 'darwin'" }
+anywidget = { version = ">=0.9", optional = true }
 
 [tool.poetry.extras]
 mps = ["pyobjc-framework-Metal", "pyobjc-framework-Cocoa", "pyobjc-framework-Quartz"]
+notebook = ["anywidget"]
 
 
 [tool.poetry.group.dev.dependencies]
