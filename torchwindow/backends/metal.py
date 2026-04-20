@@ -1,32 +1,41 @@
 """Metal backend: PyTorch-MPS tensor -> MTLTexture.
 
-V1 strategy
------------
-PyTorch-MPS allocates its tensors inside MTLBuffers with shared
-storage. ``tensor.data_ptr()`` is a pointer into that unified-memory
-region. Ideally we would wrap it with
-``newBufferWithBytesNoCopy:length:options:deallocator:`` for a true
-zero-copy path — but pyobjc's signature inspector treats the first
-argument as a Python buffer-protocol object of the ctypes pointer's
-own size (8 bytes) rather than the underlying memory region. Calling
-the selector via ctypes + ``objc_msgSend`` works but is a significant
-detour; we take it as a follow-up.
+V1 strategy (CPU roundtrip)
+---------------------------
+PyTorch-MPS stores tensors in private-storage MTLBuffers. Crucially,
+``tensor.data_ptr()`` on MPS is *not* a CPU-readable address — even
+on Apple Silicon's unified memory architecture, the pointer points
+into a region only the GPU can dereference (verified empirically on
+torch 2.7.1). So the ideal zero-copy path (wrap the tensor's backing
+MTLBuffer and create an MTLTexture view over it) requires access to
+that MTLBuffer handle, which PyTorch does not expose in its public
+Python API.
 
-V1 allocates a shared-storage MTLBuffer once, then uses
-``ctypes.memmove`` each frame to copy tensor bytes into the buffer's
-``contents`` pointer. Since both source and destination live in
-unified memory on Apple Silicon, this is a GPU-visible region-to-region
-copy at memcpy speed — still no CPU↔GPU transfer, just not yet zero
-MTLBuffer-wrap-free. Once the v1 render pipeline is proven end-to-end
-we swap this for the no-copy path.
+V1 therefore does a single CPU roundtrip per frame:
+``tensor.cpu().contiguous().numpy()`` → memmove into a shared-storage
+MTLBuffer that backs our MTLTexture. This is a real CPU↔GPU transfer
+(unlike the CUDA path's device-to-device copy), but proves the render
+pipeline end-to-end and lets users see their tensors immediately.
+
+Follow-ups for true zero-copy
+-----------------------------
+Two viable routes, each a separate PR:
+
+1. Reach into PyTorch's C++ backing via a private selector like
+   ``at::mps::getMTLBufferStorage(tensor)`` exposed through a tiny
+   C++ extension. Then ``newTextureWithDescriptor:offset:bytesPerRow:``
+   on that buffer gives a zero-copy MTLTexture view.
+
+2. Keep the public API but use a GPU-side blit: allocate a
+   shared-storage MTLBuffer, capture PyTorch's MTLCommandQueue (via
+   ``torch.mps.current_stream().synchronize()``), submit an MTLBlit
+   encoder copying from the tensor buffer to ours. No CPU involvement
+   but still needs the private MTLBuffer handle.
 
 Sync
 ----
-Before we sample the texture in the render pass we call
-``torch.mps.synchronize()``. This is coarse — a future pass can
-share an MTLCommandQueue with PyTorch via
-``torch.mps.current_stream()`` and insert an MTLSharedEvent fence
-instead — but for a first pass it guarantees correctness.
+Before copying we call ``torch.mps.synchronize()`` to flush in-flight
+MPS kernels so the tensor contents are stable.
 
 Interaction with Window
 -----------------------
@@ -140,19 +149,22 @@ class MetalBackend(Backend):
                     "newTextureWithDescriptor:offset:bytesPerRow: returned nil"
                 )
 
-        # Per-frame copy: tensor bytes -> MTLBuffer.contents(). Both
-        # regions are in unified memory; this is a plain memcpy, no
-        # CPU↔GPU transfer. ~1-2ms for 800x600 RGBA32F.
+        # V1: CPU roundtrip. tensor.data_ptr() on MPS is GPU-only and
+        # not dereferenceable from the CPU, so we force a host copy.
+        # Numpy's C buffer is the source; MTLBuffer.contents() is the
+        # destination. Both writes are seen by the GPU next frame
+        # because MTLResourceStorageModeShared is CPU/GPU-coherent on
+        # Apple Silicon.
         nbytes = pitch * height
-        # pyobjc exposes MTLBuffer.contents() as an objc.varlist; its
-        # as_buffer(n) returns a writable Python buffer pointing at the
-        # same memory. We wrap it as a ctypes array to get an address
-        # for memmove.
+        host = tensor.detach().cpu().contiguous().numpy()
+        src_ptr = host.ctypes.data
+
         dst_buffer = self._buffer.contents().as_buffer(length)
         dst_arr = (ctypes.c_ubyte * length).from_buffer(dst_buffer)
-        src_ptr = int(tensor.data_ptr())
         ctypes.memmove(dst_arr, src_ptr, nbytes)
         self._last_data_ptr = src_ptr
+        # Keep ``host`` alive until after memmove — numpy may free its
+        # storage otherwise. The local reference above is sufficient.
 
     def unregister(self) -> None:
         self.texture = None
