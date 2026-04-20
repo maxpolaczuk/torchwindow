@@ -48,6 +48,7 @@ import anywidget
 import numpy as np
 import traitlets
 
+from ._normalize import to_canonical
 from ._validate import validate_tensor
 
 _ESM = """
@@ -116,6 +117,7 @@ class NotebookWindow(anywidget.AnyWidget):
     def draw(self, tensor: Any, stream: Any = None) -> None:  # noqa: ARG002
         if not self.running:
             return
+        tensor = to_canonical(tensor)
         validate_tensor(tensor, self.width, self.height)
         arr = tensor.detach().cpu().contiguous().numpy()
         self.frame_bytes = _float_rgba_to_uint8(arr)

@@ -23,6 +23,7 @@ with warnings.catch_warnings():
     warnings.filterwarnings(action="ignore", category=UserWarning)
     import sdl2
 
+from .._normalize import to_canonical
 from .._validate import validate_tensor
 from ..backends.metal import MetalBackend
 from ..exceptions import SDLException
@@ -177,6 +178,7 @@ class MetalWindow:
     def draw(self, tensor: Any, stream: Any = None) -> None:
         if not self.running:
             return
+        tensor = to_canonical(tensor)
         validate_tensor(tensor, self.width, self.height)
         self.backend.upload(tensor, self.width, self.height, stream=stream)
         self._step_events()

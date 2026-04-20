@@ -13,6 +13,7 @@ from OpenGL import GL as gl
 from sdl2 import video
 
 from .. import backends as _backends
+from .._normalize import to_canonical
 from .._validate import validate_tensor
 from ..backends.base import Backend
 from ..exceptions import SDLException
@@ -157,6 +158,7 @@ class GLWindow:
     def draw(self, tensor: Any, stream: Any = None) -> None:
         if not self.running:
             return
+        tensor = to_canonical(tensor)
         validate_tensor(tensor, self.width, self.height)
         self._ensure_backend(tensor)
         assert self.backend is not None
