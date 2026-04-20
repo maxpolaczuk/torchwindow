@@ -1,8 +1,8 @@
-import torch
-from torchwindow import Window
-
 import time
 
+import torch
+
+from torchwindow import Window
 
 if __name__ == "__main__":
     ones_v_half = torch.ones((300, 800, 1), dtype=torch.float32, device="cuda")

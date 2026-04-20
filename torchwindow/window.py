@@ -1,36 +1,59 @@
+from __future__ import annotations
+
 import ctypes
+import logging
 import warnings
+from typing import Any, Optional
 
 with warnings.catch_warnings():
     warnings.filterwarnings(action="ignore", category=UserWarning)
     import sdl2
 
-from sdl2 import video
 from OpenGL import GL as gl
-from cuda import cudart as cu
+from sdl2 import video
 
+from . import backends as _backends
+from ._validate import validate_tensor
+from .backends.base import Backend
+from .exceptions import SDLException
 from .shaders import create_shader_program
-from .exceptions import SDLException, CudaException, OpenGLException
-
-import logging
 
 logger = logging.getLogger(__name__)
 
 
 class Window:
-    def __init__(self, width: int = 800, height: int = 600, name: str = "torchwindow"):
+    def __init__(
+        self,
+        width: int = 800,
+        height: int = 600,
+        name: str = "torchwindow",
+        backend: Optional[str] = None,
+    ) -> None:
         self.name = name
         self.width = width
         self.height = height
+        self._backend_name = backend
 
-        self.cuda_is_setup = False
         self.running = True
+        self._closed = False
+        self.sdl_window = None
+        self.gl_context = None
+        self.tex: Optional[int] = None
+        self.vao: Optional[int] = None
+        self.shader_program: Optional[int] = None
+        self.backend: Optional[Backend] = None
 
         self.setup()
 
-    def setup_sdl(self):
+    def setup_sdl(self) -> None:
         if sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO):
             raise SDLException(sdl2.SDL_GetError())
+
+        video.SDL_GL_SetAttribute(video.SDL_GL_CONTEXT_MAJOR_VERSION, 3)
+        video.SDL_GL_SetAttribute(video.SDL_GL_CONTEXT_MINOR_VERSION, 3)
+        video.SDL_GL_SetAttribute(
+            video.SDL_GL_CONTEXT_PROFILE_MASK, video.SDL_GL_CONTEXT_PROFILE_CORE
+        )
 
         self.sdl_window = sdl2.SDL_CreateWindow(
             self.name.encode(),
@@ -38,25 +61,24 @@ class Window:
             sdl2.SDL_WINDOWPOS_UNDEFINED,
             self.width,
             self.height,
-            sdl2.SDL_WINDOW_OPENGL,
+            sdl2.SDL_WINDOW_OPENGL | sdl2.SDL_WINDOW_RESIZABLE,
         )
         if not self.sdl_window:
             raise SDLException(sdl2.SDL_GetError())
 
-        # Force OpenGL 3.3 'core' context.
-        # Must set *before* creating GL context!
-        video.SDL_GL_SetAttribute(video.SDL_GL_CONTEXT_MAJOR_VERSION, 3)
-        video.SDL_GL_SetAttribute(video.SDL_GL_CONTEXT_MINOR_VERSION, 3)
-        video.SDL_GL_SetAttribute(
-            video.SDL_GL_CONTEXT_PROFILE_MASK, video.SDL_GL_CONTEXT_PROFILE_CORE
-        )
         self.gl_context = sdl2.SDL_GL_CreateContext(self.sdl_window)
+        if not self.gl_context:
+            raise SDLException(sdl2.SDL_GetError())
 
-    def setup_opengl(self):
+    def setup_opengl(self) -> None:
         self.shader_program = create_shader_program()
         self.vao = gl.glGenVertexArrays(1)
-
         self.tex = gl.glGenTextures(1)
+        self._allocate_texture_storage(self.width, self.height)
+        gl.glEnable(gl.GL_BLEND)
+        gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
+
+    def _allocate_texture_storage(self, width: int, height: int) -> None:
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex)
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_REPEAT)
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_REPEAT)
@@ -66,41 +88,27 @@ class Window:
             gl.GL_TEXTURE_2D,
             0,
             gl.GL_RGBA32F,
-            self.width,
-            self.height,
+            width,
+            height,
             0,
             gl.GL_RGBA,
             gl.GL_FLOAT,
             None,
         )
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
-        gl.glEnable(gl.GL_BLEND)
-        gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
 
-    def setup_cuda(self):
-        if self.cuda_is_setup:
+    def setup(self) -> None:
+        self.setup_sdl()
+        self.setup_opengl()
+
+    def _ensure_backend(self, tensor: Any) -> None:
+        if self.backend is not None:
             return
+        self.backend = _backends.resolve(self._backend_name, tensor)
+        assert self.tex is not None
+        self.backend.register(self.tex, self.width, self.height)
 
-        if sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO) != 0:
-            raise SDLException(sdl2.SDL_GetError())
-
-        err, *_ = cu.cudaGLGetDevices(1, cu.cudaGLDeviceList.cudaGLDeviceListAll)
-        if err == cu.cudaError_t.cudaErrorUnknown:
-            raise OpenGLException(
-                "OpenGL context may be running on integrated graphics"
-            )
-
-        err, self.cuda_image = cu.cudaGraphicsGLRegisterImage(
-            self.tex,
-            gl.GL_TEXTURE_2D,
-            cu.cudaGraphicsRegisterFlags.cudaGraphicsRegisterFlagsWriteDiscard,
-        )
-        if err != cu.cudaError_t.cudaSuccess:
-            raise CudaException("Unable to register opengl texture")
-
-        self.cuda_is_setup = True
-
-    def render(self):
+    def render(self) -> None:
         gl.glUseProgram(self.shader_program)
         try:
             gl.glClearColor(0, 0, 0, 1)
@@ -114,54 +122,69 @@ class Window:
             gl.glUseProgram(0)
         sdl2.SDL_GL_SwapWindow(self.sdl_window)
 
-    def step(self):
+    def _resize(self, width: int, height: int) -> None:
+        if width == self.width and height == self.height:
+            return
+        if self.backend is not None:
+            self.backend.unregister()
+        self.width = width
+        self.height = height
+        self._allocate_texture_storage(width, height)
+        gl.glViewport(0, 0, width, height)
+        if self.backend is not None:
+            assert self.tex is not None
+            self.backend.register(self.tex, width, height)
+
+    def step(self) -> None:
         event = sdl2.SDL_Event()
-        if self.running:
-            while sdl2.SDL_PollEvent(ctypes.byref(event)):
-                if (
-                    event.type == sdl2.SDL_WINDOWEVENT
-                    and event.window.event == sdl2.SDL_WINDOWEVENT_CLOSE
-                ):
-                    self.running = False
-            self.render()
-
-    def setup(self):
-        self.setup_sdl()
-        self.setup_opengl()
-        self.setup_cuda()
-
-    def draw(self, tensor):
         if not self.running:
             return
-        if not self.cuda_is_setup:
-            self.setup_cuda()
-        (err,) = cu.cudaGraphicsMapResources(1, self.cuda_image, cu.cudaStreamLegacy)
-        if err != cu.cudaError_t.cudaSuccess:
-            raise CudaException("Unable to map graphics resource")
-        err, array = cu.cudaGraphicsSubResourceGetMappedArray(self.cuda_image, 0, 0)
-        if err != cu.cudaError_t.cudaSuccess:
-            raise CudaException("Unable to get mapped array")
-        (err,) = cu.cudaMemcpy2DToArrayAsync(
-            array,
-            0,
-            0,
-            tensor.data_ptr(),
-            4 * 4 * self.width,
-            4 * 4 * self.width,
-            self.height,
-            cu.cudaMemcpyKind.cudaMemcpyDeviceToDevice,
-            cu.cudaStreamLegacy,
-        )
-        if err != cu.cudaError_t.cudaSuccess:
-            raise CudaException("Unable to copy from tensor to texture")
+        while sdl2.SDL_PollEvent(ctypes.byref(event)):
+            if event.type == sdl2.SDL_WINDOWEVENT:
+                if event.window.event == sdl2.SDL_WINDOWEVENT_CLOSE:
+                    self.running = False
+                elif event.window.event == sdl2.SDL_WINDOWEVENT_SIZE_CHANGED:
+                    self._resize(event.window.data1, event.window.data2)
+            elif event.type == sdl2.SDL_KEYDOWN:
+                if event.key.keysym.sym == sdl2.SDLK_ESCAPE:
+                    self.running = False
+            elif event.type == sdl2.SDL_QUIT:
+                self.running = False
+        self.render()
 
-        (err,) = cu.cudaGraphicsUnmapResources(1, self.cuda_image, cu.cudaStreamLegacy)
-        if err != cu.cudaError_t.cudaSuccess:
-            raise CudaException("Unable to unmap graphics resource")
+    def draw(self, tensor: Any, stream: Any = None) -> None:
+        if not self.running:
+            return
+        validate_tensor(tensor, self.width, self.height)
+        self._ensure_backend(tensor)
+        assert self.backend is not None
+        self.backend.upload(tensor, self.width, self.height, stream=stream)
         self.step()
 
-    def close(self):
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         self.running = False
-        sdl2.SDL_GL_DeleteContext(self.gl_context)
-        sdl2.SDL_DestroyWindow(self.sdl_window)
+        if self.backend is not None:
+            self.backend.unregister()
+            self.backend = None
+        if self.gl_context is not None:
+            sdl2.SDL_GL_DeleteContext(self.gl_context)
+            self.gl_context = None
+        if self.sdl_window is not None:
+            sdl2.SDL_DestroyWindow(self.sdl_window)
+            self.sdl_window = None
         sdl2.SDL_Quit()
+
+    def __enter__(self) -> "Window":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass

@@ -7,6 +7,7 @@ readme = "README.md"
 license = "MIT"
 homepage = "https://github.com/jbaron34/torchwindow"
 repository = "https://github.com/jbaron34/torchwindow"
+packages = [{ include = "torchwindow" }]
 
 [tool.poetry.dependencies]
 python = "^3.8"
@@ -14,12 +15,29 @@ pysdl2 = "^0.9.14"
 pysdl2-dll = "^2.24.1"
 numpy = "^1.23.4"
 pyopengl = "^3.1.6"
-cuda-python = "^11.8.0"
+cuda-python = ">=11.8.0,<13.0.0"
 
 
 [tool.poetry.group.dev.dependencies]
-black = {version = "^22.10.0", allow-prereleases = true}
+black = { version = "^22.10.0", allow-prereleases = true }
+pytest = "^8.0"
+ruff = "^0.5"
+mypy = "^1.8"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict_optional = true
+warn_unused_ignores = true
+ignore_missing_imports = true

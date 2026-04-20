@@ -1,6 +1,5 @@
-from OpenGL.GL import GL_VERTEX_SHADER, GL_FRAGMENT_SHADER
+from OpenGL.GL import GL_FRAGMENT_SHADER, GL_VERTEX_SHADER
 from OpenGL.GL.shaders import compileProgram, compileShader
-
 
 VERTEX_SHADER_SOURCE = """
 #version 450
