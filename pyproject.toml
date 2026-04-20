@@ -16,6 +16,12 @@ pysdl2-dll = "^2.24.1"
 numpy = "^1.23.4"
 pyopengl = "^3.1.6"
 cuda-python = ">=11.8.0,<13.0.0"
+pyobjc-framework-Metal = { version = ">=9.0", optional = true, markers = "sys_platform == 'darwin'" }
+pyobjc-framework-Cocoa = { version = ">=9.0", optional = true, markers = "sys_platform == 'darwin'" }
+pyobjc-framework-Quartz = { version = ">=9.0", optional = true, markers = "sys_platform == 'darwin'" }
+
+[tool.poetry.extras]
+mps = ["pyobjc-framework-Metal", "pyobjc-framework-Cocoa", "pyobjc-framework-Quartz"]
 
 
 [tool.poetry.group.dev.dependencies]

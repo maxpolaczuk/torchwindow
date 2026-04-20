@@ -21,7 +21,16 @@ def _try_register_cuda_gl() -> None:
     register_backend(CudaGLBackend)
 
 
+def _try_register_metal() -> None:
+    try:
+        from .metal import MetalBackend
+    except Exception:  # missing pyobjc-framework-Metal / non-macOS
+        return
+    register_backend(MetalBackend)
+
+
 _try_register_cuda_gl()
+_try_register_metal()
 
 
 def auto_select(tensor: Any) -> Backend:
